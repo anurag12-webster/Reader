@@ -18,7 +18,11 @@ Built with [Tauri](https://tauri.app) + React.
 
 > **Windows**: Run the `.msi` installer.
 >
-> **macOS**: Open the `.dmg` and drag Reader to Applications. If macOS says "unidentified developer", right-click the app → **Open** → **Open**. You only need to do this once.
+> **macOS**: Open the `.dmg` and drag Reader to Applications. If macOS says the app is "damaged" or only shows "Move to Bin / Cancel", open Terminal and run:
+> ```
+> xattr -cr /Applications/PDF\ Reader.app
+> ```
+> Then open the app normally. You only need to do this once.
 >
 > **Linux**: `chmod +x Reader_amd64.AppImage` then run it, or `sudo dpkg -i Reader_amd64.deb`.
 
