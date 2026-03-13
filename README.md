@@ -17,7 +17,13 @@ Built with [Tauri](https://tauri.app) + React.
 | Linux (x64) | `PDF.Reader_x.x.x_amd64.AppImage` or `PDF.Reader_x.x.x_amd64.deb` |
 
 > **Windows**: Run the `.msi` installer.
-> **macOS**: Open the `.dmg`, drag Reader to Applications. If blocked by Gatekeeper, right-click → Open.
+>
+> **macOS**: Open the `.dmg` and drag Reader to Applications. If macOS says the app is "damaged" or "cannot be opened", run this in Terminal:
+> ```
+> xattr -cr /Applications/PDF\ Reader.app
+> ```
+> This removes the quarantine flag Apple adds to unsigned apps. The app is not damaged — it's just not signed with a paid Apple Developer certificate.
+>
 > **Linux**: `chmod +x Reader_amd64.AppImage` then run it, or `sudo dpkg -i Reader_amd64.deb`.
 
 ---
