@@ -16,11 +16,6 @@ jobs:
             pdfium-lib: pdfium.dll
             pdfium-bin: src-tauri/bin/pdfium.dll
 
-          - platform: macos-13
-            pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz
-            pdfium-lib: libpdfium.dylib
-            pdfium-bin: src-tauri/bin/libpdfium.dylib
-
           - platform: macos-latest
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
             pdfium-lib: libpdfium.dylib

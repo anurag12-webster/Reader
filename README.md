@@ -12,7 +12,6 @@ Built with [Tauri](https://tauri.app) + React.
 |----------|----------|
 | Windows (x64) | [Reader_x64_en-US.msi](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64_en-US.msi) · [Setup .exe](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64-setup.exe) |
 | macOS (Apple Silicon) | [Reader_aarch64.dmg](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_aarch64.dmg) |
-| macOS (Intel) | [Reader_x64.dmg](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_x64.dmg) |
 | Linux (x64) | [Reader_amd64.AppImage](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.AppImage) · [.deb](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.deb) |
 
 Or browse all releases: [Releases page](https://github.com/anurag12-webster/Reader/releases/latest)
