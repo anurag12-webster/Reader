@@ -3,6 +3,7 @@ fn main() {
 
     // Tell the linker where to find the pdfium import lib / dylib
     println!("cargo:rustc-link-search=native={}/lib", manifest_dir);
+    println!("cargo:rustc-link-search=native={}/bin", manifest_dir);
     println!("cargo:rustc-link-lib=dylib=pdfium");
 
     // Copy the pdfium shared library next to the output binary so it's found at runtime.

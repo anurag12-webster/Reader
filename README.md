@@ -8,17 +8,18 @@ Built with [Tauri](https://tauri.app) + React.
 
 ## Download
 
-Go to the [Releases](https://github.com/anurag12-webster/Reader/releases/latest) page and grab the installer for your platform:
+| Platform | Download |
+|----------|----------|
+| Windows (x64) | [Reader_x64_en-US.msi](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64_en-US.msi) · [Setup .exe](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64-setup.exe) |
+| macOS (Apple Silicon) | [Reader_aarch64.dmg](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_aarch64.dmg) |
+| macOS (Intel) | [Reader_x64.dmg](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_x64.dmg) |
+| Linux (x64) | [Reader_amd64.AppImage](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.AppImage) · [.deb](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.deb) |
 
-| Platform | File |
-|----------|------|
-| Windows  | `Reader_x64_en-US.msi` or `Reader_x64-setup.exe` |
-| macOS    | `Reader.dmg` |
-| Linux    | `Reader_amd64.AppImage` or `Reader_amd64.deb` |
+Or browse all releases: [Releases page](https://github.com/anurag12-webster/Reader/releases/latest)
 
-> **Windows**: Run the `.msi` or `.exe` installer.
-> **macOS**: Open the `.dmg`, drag the app to Applications.
-> **Linux**: Make the `.AppImage` executable (`chmod +x`) and run it, or install the `.deb`.
+> **Windows**: Run the `.msi` installer.
+> **macOS**: Open the `.dmg`, drag Reader to Applications. If blocked by Gatekeeper, right-click → Open.
+> **Linux**: `chmod +x Reader_amd64.AppImage` then run it, or `sudo dpkg -i Reader_amd64.deb`.
 
 ---
 
@@ -42,13 +43,10 @@ Go to the [Releases](https://github.com/anurag12-webster/Reader/releases/latest)
 
 - [Node.js](https://nodejs.org) 18+
 - [Rust](https://rustup.rs) (stable)
-- Tauri CLI: `npm install -g @tauri-apps/cli`
-- **pdfium**: Download the prebuilt pdfium binary for your platform and place it in `src-tauri/bin/`:
+- **pdfium**: Download the prebuilt binary for your platform from [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases) and place it in `src-tauri/bin/`:
   - Windows: `pdfium.dll`
   - macOS: `libpdfium.dylib`
   - Linux: `libpdfium.so`
-
-  Prebuilt binaries are available at [bblanchon/pdfium-binaries](https://github.com/bblanchon/pdfium-binaries/releases).
 
 ### Run in development
 
@@ -63,7 +61,7 @@ npm run tauri dev
 npm run tauri build
 ```
 
-Installers will be output to `src-tauri/target/release/bundle/`.
+Installers output to `src-tauri/target/release/bundle/`.
 
 ---
 

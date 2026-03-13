@@ -14,17 +14,22 @@ jobs:
           - platform: windows-latest
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
             pdfium-lib: pdfium.dll
-            pdfium-dest: src-tauri/bin/pdfium.dll
+            pdfium-bin: src-tauri/bin/pdfium.dll
 
-          - platform: macos-latest
+          - platform: macos-13
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz
             pdfium-lib: libpdfium.dylib
-            pdfium-dest: src-tauri/bin/libpdfium.dylib
+            pdfium-bin: src-tauri/bin/libpdfium.dylib
+
+          - platform: macos-latest
+            pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
+            pdfium-lib: libpdfium.dylib
+            pdfium-bin: src-tauri/bin/libpdfium.dylib
 
           - platform: ubuntu-22.04
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz
             pdfium-lib: libpdfium.so
-            pdfium-dest: src-tauri/bin/libpdfium.so
+            pdfium-bin: src-tauri/bin/libpdfium.so
 
     runs-on: ${{ matrix.platform }}
 
@@ -54,11 +59,14 @@ jobs:
       - name: Download pdfium
         shell: bash
         run: |
-          mkdir -p src-tauri/bin
+          mkdir -p src-tauri/bin src-tauri/lib
           curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
           tar -xzf pdfium.tgz
-          # find the lib inside the extracted archive
-          find . -name "${{ matrix.pdfium-lib }}" | head -1 | xargs -I{} cp {} ${{ matrix.pdfium-dest }}
+          # pdfium-binaries extracts to lib/libpdfium.* or lib/pdfium.dll
+          LIB=$(find . -name "${{ matrix.pdfium-lib }}" ! -path "./${{ matrix.pdfium-bin }}" | head -1)
+          cp "$LIB" "${{ matrix.pdfium-bin }}"
+          # also place in src-tauri/lib/ so the linker can find it by name
+          cp "$LIB" "src-tauri/lib/${{ matrix.pdfium-lib }}"
 
       - name: Install frontend deps
         run: npm ci
@@ -73,8 +81,9 @@ jobs:
           releaseBody: |
             Download the installer for your platform below.
 
-            **Windows**: `.msi` (recommended) or `.exe`
-            **macOS**: `.dmg`
-            **Linux**: `.AppImage` or `.deb`
+            **Windows** (x64): `Reader_x64_en-US.msi` or `Reader_x64-setup.exe`
+            **macOS** (Apple Silicon): `Reader_aarch64.dmg`
+            **macOS** (Intel): `Reader_x64.dmg`
+            **Linux** (x64): `Reader_amd64.AppImage` or `Reader_amd64.deb`
           releaseDraft: false
           prerelease: false
