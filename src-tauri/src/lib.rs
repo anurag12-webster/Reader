@@ -87,7 +87,7 @@ fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, String> {
     let title = extract_pdf_title(&path);
 
     let mut lib = load_library(&app);
-    let urls = if let Some(cached) = lib.artifact_urls.get(&path) {
+    let urls = if let Some(cached) = lib.artifact_urls.get(&path).filter(|v| !v.is_empty()) {
         cached.clone()
     } else {
         let extracted = extract_pdf_urls(&path);
