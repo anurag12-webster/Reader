@@ -82,7 +82,28 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build Tauri app
+      - name: Build Tauri app (macOS — ad-hoc sign)
+        if: matrix.platform == 'macos-latest'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: "-"
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Reader ${{ github.ref_name }}
+          releaseBody: |
+            Download the installer for your platform below.
+
+            **Windows** (x64): `PDF Reader_x64_en-US.msi` or `PDF Reader_x64-setup.exe`
+            **macOS** (Apple Silicon): `PDF Reader_aarch64.dmg`
+            **Linux** (x64): `PDF Reader_amd64.AppImage` or `PDF Reader_amd64.deb`
+
+            > **macOS note**: If you see "unidentified developer", right-click the app → Open → Open.
+          releaseDraft: false
+          prerelease: false
+
+      - name: Build Tauri app (Windows + Linux)
+        if: matrix.platform != 'macos-latest'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

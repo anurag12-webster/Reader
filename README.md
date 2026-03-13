@@ -18,11 +18,7 @@ Built with [Tauri](https://tauri.app) + React.
 
 > **Windows**: Run the `.msi` installer.
 >
-> **macOS**: Open the `.dmg` and drag Reader to Applications. If macOS says the app is "damaged" or "cannot be opened", run this in Terminal:
-> ```
-> xattr -cr /Applications/PDF\ Reader.app
-> ```
-> This removes the quarantine flag Apple adds to unsigned apps. The app is not damaged — it's just not signed with a paid Apple Developer certificate.
+> **macOS**: Open the `.dmg` and drag Reader to Applications. If macOS says "unidentified developer", right-click the app → **Open** → **Open**. You only need to do this once.
 >
 > **Linux**: `chmod +x Reader_amd64.AppImage` then run it, or `sudo dpkg -i Reader_amd64.deb`.
 
