@@ -55,7 +55,7 @@ jobs:
           mkdir -p src-tauri/bin src-tauri/lib
           curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
           tar -xzf pdfium.tgz
-          cp lib/pdfium.dll src-tauri/bin/pdfium.dll
+          cp bin/pdfium.dll src-tauri/bin/pdfium.dll
           # linker needs pdfium.lib (the import library)
           cp lib/pdfium.dll.lib src-tauri/lib/pdfium.lib
 
