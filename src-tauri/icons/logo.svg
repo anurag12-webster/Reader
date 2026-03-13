@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#0f0f1a"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#e8e8e8" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f5c842"/>
+      <stop offset="100%" stop-color="#f0a020"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="rgba(0,0,0,0.5)"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded rect -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Subtle inner glow -->
+  <rect width="512" height="512" rx="112" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"/>
+
+  <!-- Book group, centered -->
+  <g filter="url(#shadow)">
+    <!-- Left page -->
+    <path d="M256 160
+             C240 155 210 152 175 155
+             C148 157 128 163 116 170
+             L112 340
+             C124 334 146 329 175 327
+             C210 325 242 328 256 334
+             Z"
+          fill="url(#page)"/>
+
+    <!-- Right page -->
+    <path d="M256 160
+             C272 155 302 152 337 155
+             C364 157 384 163 396 170
+             L400 340
+             C388 334 366 329 337 327
+             C302 325 270 328 256 334
+             Z"
+          fill="url(#page)" opacity="0.88"/>
+
+    <!-- Spine line -->
+    <line x1="256" y1="158" x2="256" y2="336"
+          stroke="rgba(0,0,0,0.18)" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- Text lines on left page -->
+  <g opacity="0.28">
+    <rect x="136" y="196" width="96" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="136" y="214" width="80" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="136" y="232" width="90" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="136" y="250" width="72" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="136" y="268" width="86" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="136" y="286" width="76" height="7" rx="3.5" fill="#1a1a2e"/>
+  </g>
+
+  <!-- Text lines on right page -->
+  <g opacity="0.22">
+    <rect x="280" y="196" width="96" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="280" y="214" width="76" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="280" y="232" width="88" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="280" y="250" width="68" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="280" y="268" width="82" height="7" rx="3.5" fill="#1a1a2e"/>
+    <rect x="280" y="286" width="72" height="7" rx="3.5" fill="#1a1a2e"/>
+  </g>
+
+  <!-- Yellow highlight on left page -->
+  <rect x="136" y="228" width="90" height="11" rx="3" fill="url(#accent)" opacity="0.65"/>
+
+  <!-- Small note icon (top-right of left page) -->
+  <rect x="204" y="188" width="22" height="22" rx="4" fill="url(#accent)" opacity="0.9"/>
+  <rect x="208" y="193" width="14" height="2" rx="1" fill="rgba(0,0,0,0.45)"/>
+  <rect x="208" y="197.5" width="14" height="2" rx="1" fill="rgba(0,0,0,0.45)"/>
+  <rect x="208" y="202" width="10" height="2" rx="1" fill="rgba(0,0,0,0.45)"/>
+</svg>
