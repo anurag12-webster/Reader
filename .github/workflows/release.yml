@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -13,18 +16,12 @@ jobs:
         include:
           - platform: windows-latest
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
-            pdfium-lib: pdfium.dll
-            pdfium-bin: src-tauri/bin/pdfium.dll
 
           - platform: macos-latest
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
-            pdfium-lib: libpdfium.dylib
-            pdfium-bin: src-tauri/bin/libpdfium.dylib
 
           - platform: ubuntu-22.04
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz
-            pdfium-lib: libpdfium.so
-            pdfium-bin: src-tauri/bin/libpdfium.so
 
     runs-on: ${{ matrix.platform }}
 
@@ -51,17 +48,36 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Download pdfium
+      - name: Download pdfium (Windows)
+        if: matrix.platform == 'windows-latest'
         shell: bash
         run: |
           mkdir -p src-tauri/bin src-tauri/lib
           curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
           tar -xzf pdfium.tgz
-          # pdfium-binaries extracts to lib/libpdfium.* or lib/pdfium.dll
-          LIB=$(find . -name "${{ matrix.pdfium-lib }}" ! -path "./${{ matrix.pdfium-bin }}" | head -1)
-          cp "$LIB" "${{ matrix.pdfium-bin }}"
-          # also place in src-tauri/lib/ so the linker can find it by name
-          cp "$LIB" "src-tauri/lib/${{ matrix.pdfium-lib }}"
+          cp lib/pdfium.dll src-tauri/bin/pdfium.dll
+          # linker needs pdfium.lib (the import library)
+          cp lib/pdfium.dll.lib src-tauri/lib/pdfium.lib
+
+      - name: Download pdfium (macOS)
+        if: matrix.platform == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/bin src-tauri/lib
+          curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
+          tar -xzf pdfium.tgz
+          cp lib/libpdfium.dylib src-tauri/bin/libpdfium.dylib
+          cp lib/libpdfium.dylib src-tauri/lib/libpdfium.dylib
+
+      - name: Download pdfium (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          mkdir -p src-tauri/bin src-tauri/lib
+          curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
+          tar -xzf pdfium.tgz
+          cp lib/libpdfium.so src-tauri/bin/libpdfium.so
+          cp lib/libpdfium.so src-tauri/lib/libpdfium.so
 
       - name: Install frontend deps
         run: npm ci
@@ -76,9 +92,8 @@ jobs:
           releaseBody: |
             Download the installer for your platform below.
 
-            **Windows** (x64): `Reader_x64_en-US.msi` or `Reader_x64-setup.exe`
-            **macOS** (Apple Silicon): `Reader_aarch64.dmg`
-            **macOS** (Intel): `Reader_x64.dmg`
-            **Linux** (x64): `Reader_amd64.AppImage` or `Reader_amd64.deb`
+            **Windows** (x64): `PDF Reader_x64_en-US.msi` or `PDF Reader_x64-setup.exe`
+            **macOS** (Apple Silicon): `PDF Reader_aarch64.dmg`
+            **Linux** (x64): `PDF Reader_amd64.AppImage` or `PDF Reader_amd64.deb`
           releaseDraft: false
           prerelease: false
