@@ -8,13 +8,13 @@ Built with [Tauri](https://tauri.app) + React.
 
 ## Download
 
-| Platform | Download |
-|----------|----------|
-| Windows (x64) | [Reader_x64_en-US.msi](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64_en-US.msi) · [Setup .exe](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_0.1.0_x64-setup.exe) |
-| macOS (Apple Silicon) | [Reader_aarch64.dmg](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_aarch64.dmg) |
-| Linux (x64) | [Reader_amd64.AppImage](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.AppImage) · [.deb](https://github.com/anurag12-webster/Reader/releases/latest/download/PDF.Reader_amd64.deb) |
+**[Download the latest release](https://github.com/anurag12-webster/Reader/releases/latest)**
 
-Or browse all releases: [Releases page](https://github.com/anurag12-webster/Reader/releases/latest)
+| Platform | File to download |
+|----------|-----------------|
+| Windows (x64) | `PDF.Reader_x.x.x_x64_en-US.msi` or `PDF.Reader_x.x.x_x64-setup.exe` |
+| macOS (Apple Silicon) | `PDF.Reader_x.x.x_aarch64.dmg` |
+| Linux (x64) | `PDF.Reader_x.x.x_amd64.AppImage` or `PDF.Reader_x.x.x_amd64.deb` |
 
 > **Windows**: Run the `.msi` installer.
 > **macOS**: Open the `.dmg`, drag Reader to Applications. If blocked by Gatekeeper, right-click → Open.
