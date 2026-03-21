@@ -1,11 +1,11 @@
 import {
   ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Highlighter, Underline, StickyNote, MousePointer,
-  RotateCcw, RotateCw, BookOpen, FileText as FileSingle,
+  RotateCcw, RotateCw, BookOpen, FileText as FileSingle, AlignJustify,
 } from "lucide-react";
 
-export type PageLayout = "single" | "double";
-import { PdfTheme } from "../types";
+import { PdfTheme, PageLayout } from "../types";
+export type { PageLayout };
 import { useState, useEffect } from "react";
 import Tooltip from "./Tooltip";
 
@@ -212,8 +212,11 @@ export default function Toolbar({
         <Btn active={pageLayout === "single"} onClick={() => onPageLayoutChange("single")} tip="Single page">
           <FileSingle size={13} strokeWidth={1.8} />
         </Btn>
-        <Btn active={pageLayout === "double"} onClick={() => onPageLayoutChange("double")} tip="Two page">
+        <Btn active={pageLayout === "double"} onClick={() => onPageLayoutChange("double")} tip="Two pages">
           <BookOpen size={13} strokeWidth={1.8} />
+        </Btn>
+        <Btn active={pageLayout === "continuous"} onClick={() => onPageLayoutChange("continuous")} tip="Continuous scroll">
+          <AlignJustify size={13} strokeWidth={1.8} />
         </Btn>
 
         <Sep />

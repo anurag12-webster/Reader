@@ -1,4 +1,19 @@
 export type PdfTheme = "classic" | "dark" | "warm" | "blue";
+export type PageLayout = "single" | "double" | "continuous";
+
+export interface AppSettings {
+  defaultZoom: number;
+  defaultTheme: PdfTheme;
+  defaultLayout: PageLayout;
+  showThumbnails: boolean;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  defaultZoom: 1.5,
+  defaultTheme: "classic",
+  defaultLayout: "single",
+  showThumbnails: true,
+};
 
 export interface OutlineItem {
   title: string;
@@ -27,7 +42,7 @@ export interface PdfFile {
   currentPage: number;
   zoom: number;
   theme: PdfTheme;
-  pageLayout: "single" | "double";
+  pageLayout: PageLayout;
   rotation: number;
   annotations: Annotation[];
   outline: OutlineItem[];

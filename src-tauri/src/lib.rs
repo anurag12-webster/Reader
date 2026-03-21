@@ -3,16 +3,40 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+// ── PDFium binding ────────────────────────────────────────────────────────────
+
 fn bind_pdfium() -> Option<pdfium_render::prelude::Pdfium> {
     use pdfium_render::prelude::*;
     let lib_name = if cfg!(windows) { "pdfium.dll" }
         else if cfg!(target_os = "macos") { "libpdfium.dylib" }
         else { "libpdfium.so" };
-    let binding = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join(lib_name)))
-        .filter(|lib| lib.exists())
-        .and_then(|lib| Pdfium::bind_to_library(&lib).ok())
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // 1. Beside the executable (Windows, macOS, bundled Linux)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join(lib_name));
+        }
+    }
+
+    // 2. AppImage / squashfs (Linux AppImage)
+    if let Ok(appdir) = std::env::var("APPDIR") {
+        let base = PathBuf::from(&appdir);
+        candidates.push(base.join("usr").join("lib").join(lib_name));
+        candidates.push(base.join(lib_name));
+    }
+
+    // 3. ../lib relative to exe (some Tauri Linux .deb layouts)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent().and_then(|p| p.parent()) {
+            candidates.push(parent.join("lib").join(lib_name));
+        }
+    }
+
+    let binding = candidates.into_iter()
+        .filter(|p| p.exists())
+        .find_map(|lib| Pdfium::bind_to_library(&lib).ok())
         .or_else(|| Pdfium::bind_to_system_library().ok())?;
     Some(Pdfium::new(binding))
 }
@@ -60,6 +84,7 @@ fn add_recent(app: tauri::AppHandle, path: String, name: String) {
     let mut recents = load_recents(&app);
     recents.retain(|r| r.path != path);
     recents.insert(0, RecentFile { path, name, opened_at: now });
+    recents.truncate(50); // keep last 50
     save_recents(&app, &recents);
 }
 
@@ -79,26 +104,56 @@ pub struct OpenedPdf {
     pub urls: Vec<String>,
 }
 
+/// Opens a PDF: reads bytes on a blocking thread, extracts title + URLs (pdfium is CPU-bound),
+/// returns base64 data. URL extraction is skipped if already cached (non-empty).
 #[tauri::command]
-fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, String> {
-    use base64::Engine;
-    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
-    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    let title = extract_pdf_title(&path);
-
-    let mut lib = load_library(&app);
-    let urls = if let Some(cached) = lib.artifact_urls.get(&path).filter(|v| !v.is_empty()) {
-        cached.clone()
-    } else {
-        let extracted = extract_pdf_urls(&path);
-        lib.artifact_urls.insert(path.clone(), extracted.clone());
-        let lib_path = library_path(&app);
-        let _ = fs::create_dir_all(lib_path.parent().unwrap());
-        if let Ok(json) = serde_json::to_vec_pretty(&lib) { let _ = fs::write(lib_path, json); }
-        extracted
+async fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, String> {
+    // Check cache first (fast, no blocking needed)
+    let cached_urls = {
+        let lib = load_library(&app);
+        lib.artifact_urls.get(&path)
+            .filter(|v| !v.is_empty())
+            .cloned()
     };
 
-    Ok(OpenedPdf { data, title, urls })
+    let path_clone = path.clone();
+    let has_cache = cached_urls.is_some();
+
+    // Offload all blocking IO + pdfium work to a dedicated thread pool thread
+    // so Tauri's async runtime is never stalled
+    let (data, title, urls) = tokio::task::spawn_blocking(move || {
+        use base64::Engine;
+        let bytes = fs::read(&path_clone).map_err(|e| e.to_string())?;
+        let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let title = extract_pdf_title(&path_clone);
+        let urls = if has_cache {
+            vec![] // will be replaced by cached_urls below
+        } else {
+            extract_pdf_urls(&path_clone)
+        };
+        Ok::<_, String>((data, title, urls))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    // Use cache if available, otherwise use freshly extracted + persist
+    let final_urls = if let Some(cached) = cached_urls {
+        cached
+    } else {
+        // Persist the newly extracted URLs without touching other library data
+        let mut lib = load_library(&app);
+        if !urls.is_empty() || !lib.artifact_urls.contains_key(&path) {
+            lib.artifact_urls.insert(path.clone(), urls.clone());
+            let lib_path = library_path(&app);
+            let _ = fs::create_dir_all(lib_path.parent().unwrap());
+            if let Ok(json) = serde_json::to_vec_pretty(&lib) {
+                let _ = fs::write(lib_path, json);
+            }
+        }
+        urls
+    };
+
+    Ok(OpenedPdf { data, title, urls: final_urls })
 }
 
 fn extract_pdf_title(path: &str) -> Option<String> {
@@ -134,11 +189,13 @@ fn extract_pdf_urls(path: &str) -> Vec<String> {
     };
 
     for page in doc.pages().iter() {
+        // PDF annotation links (most reliable — these are actual hyperlinks)
         for link in page.links().iter() {
             if let Some(PdfAction::Uri(uri)) = link.action() {
                 if let Ok(u) = uri.uri() { add(&u); }
             }
         }
+        // Plain text URL extraction (catches URLs not wrapped in link annotations)
         if let Ok(text) = page.text() {
             for m in url_re.find_iter(&text.all()) { add(m.as_str()); }
         }
@@ -148,36 +205,42 @@ fn extract_pdf_urls(path: &str) -> Vec<String> {
 
 // ── Thumbnail ─────────────────────────────────────────────────────────────────
 
+/// Renders the first page of a PDF as a PNG thumbnail.
+/// Runs on a blocking thread since pdfium rendering is CPU-bound.
 #[tauri::command]
-fn get_thumbnail(path: String, width: u32) -> Result<String, String> {
-    use pdfium_render::prelude::*;
-    use base64::Engine;
+async fn get_thumbnail(path: String, width: u32) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        use pdfium_render::prelude::*;
+        use base64::Engine;
+        use image::ImageEncoder;
 
-    let pdfium = bind_pdfium().ok_or("pdfium not found")?;
-    let doc = pdfium.load_pdf_from_file(&path, None).map_err(|e| e.to_string())?;
-    let page = doc.pages().get(0).map_err(|e| e.to_string())?;
+        let pdfium = bind_pdfium().ok_or("pdfium not available")?;
+        let doc = pdfium.load_pdf_from_file(&path, None).map_err(|e| e.to_string())?;
+        let page = doc.pages().get(0).map_err(|e| e.to_string())?;
 
-    let scale = width as f32 / page.width().value;
-    let h = (page.height().value * scale).round() as u32;
-    let bitmap = page
-        .render_with_config(
-            &PdfRenderConfig::new()
-                .set_target_width(width as i32)
-                .set_target_height(h as i32)
-                .rotate_if_landscape(PdfPageRenderRotation::None, false),
-        )
-        .map_err(|e| e.to_string())?
-        .as_image();
+        let scale = width as f32 / page.width().value;
+        let h = (page.height().value * scale).round() as u32;
+        let bitmap = page
+            .render_with_config(
+                &PdfRenderConfig::new()
+                    .set_target_width(width as i32)
+                    .set_target_height(h as i32)
+                    .rotate_if_landscape(PdfPageRenderRotation::None, false),
+            )
+            .map_err(|e| e.to_string())?
+            .as_image();
 
-    use image::ImageEncoder;
-    let rgba = bitmap.into_rgba8();
-    let (w, h) = (rgba.width(), rgba.height());
-    let mut png: Vec<u8> = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut png)
-        .write_image(rgba.as_raw(), w, h, image::ColorType::Rgba8.into())
-        .map_err(|e| e.to_string())?;
+        let rgba = bitmap.into_rgba8();
+        let (w, h) = (rgba.width(), rgba.height());
+        let mut png: Vec<u8> = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(rgba.as_raw(), w, h, image::ColorType::Rgba8.into())
+            .map_err(|e| e.to_string())?;
 
-    Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png)))
+        Ok(format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png)))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 // ── Library store ─────────────────────────────────────────────────────────────
@@ -231,20 +294,129 @@ fn save_library(app: tauri::AppHandle, store: LibraryStore) {
     }
 }
 
+// ── App settings ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    #[serde(rename = "defaultZoom", default = "default_zoom")]
+    pub default_zoom: f32,
+    #[serde(rename = "defaultTheme", default = "default_theme")]
+    pub default_theme: String,
+    #[serde(rename = "defaultLayout", default = "default_layout")]
+    pub default_layout: String,
+    #[serde(rename = "showThumbnails", default = "default_true")]
+    pub show_thumbnails: bool,
+}
+
+fn default_zoom() -> f32 { 1.5 }
+fn default_theme() -> String { "classic".into() }
+fn default_layout() -> String { "single".into() }
+fn default_true() -> bool { true }
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            default_zoom: default_zoom(),
+            default_theme: default_theme(),
+            default_layout: default_layout(),
+            show_thumbnails: default_true(),
+        }
+    }
+}
+
+fn settings_path(app: &tauri::AppHandle) -> PathBuf {
+    app.path().app_data_dir().expect("no app data dir").join("settings.json")
+}
+
+#[tauri::command]
+fn get_settings(app: tauri::AppHandle) -> AppSettings {
+    fs::read(settings_path(&app))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_settings(app: tauri::AppHandle, settings: AppSettings) {
+    let path = settings_path(&app);
+    let _ = fs::create_dir_all(path.parent().unwrap());
+    if let Ok(json) = serde_json::to_vec_pretty(&settings) {
+        let _ = fs::write(path, json);
+    }
+}
+
 // ── arXiv title fetch ─────────────────────────────────────────────────────────
 
 #[tauri::command]
-fn fetch_arxiv_title(arxiv_id: String) -> Result<String, String> {
+async fn fetch_arxiv_title(arxiv_id: String) -> Result<String, String> {
     let url = format!("https://export.arxiv.org/api/query?id_list={}&max_results=1", arxiv_id);
-    let body = reqwest::blocking::get(&url)
+    let body = reqwest::get(&url)
+        .await
         .map_err(|e| e.to_string())?
         .text()
+        .await
         .map_err(|e| e.to_string())?;
     body.split("<title>")
         .nth(2)
         .and_then(|chunk| chunk.split("</title>").next())
         .map(|t| t.replace('\n', " ").split_whitespace().collect::<Vec<_>>().join(" "))
         .ok_or_else(|| "title not found".to_string())
+}
+
+// ── Update check ──────────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct UpdateCheckResult {
+    pub up_to_date: bool,
+    pub latest_version: String,
+    pub release_url: String,
+}
+
+/// Compares semver strings like "1.2.3" — returns true if `latest` > `current`.
+fn is_newer(current: &str, latest: &str) -> bool {
+    let parse = |s: &str| -> (u64, u64, u64) {
+        let mut parts = s.trim_start_matches('v').splitn(4, '.');
+        let major = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        let minor = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        let patch = parts.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        (major, minor, patch)
+    };
+    parse(latest) > parse(current)
+}
+
+#[tauri::command]
+async fn check_for_update() -> Result<UpdateCheckResult, String> {
+    const CURRENT: &str = env!("CARGO_PKG_VERSION");
+    const RELEASES_URL: &str = "https://github.com/anurag12-webster/Reader/releases/latest";
+    const API_URL: &str = "https://api.github.com/repos/anurag12-webster/Reader/releases/latest";
+
+    let client = reqwest::Client::builder()
+        .user_agent(concat!("PDF-Reader/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let response = client
+        .get(API_URL)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Parse the JSON body as text first, then parse with serde_json for full control
+    let body = response.text().await.map_err(|e| e.to_string())?;
+    let resp: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+
+    let tag = resp["tag_name"]
+        .as_str()
+        .ok_or_else(|| "GitHub API returned no tag_name".to_string())?;
+
+    let latest = tag.trim_start_matches('v').to_string();
+
+    Ok(UpdateCheckResult {
+        up_to_date: !is_newer(CURRENT, &latest),
+        latest_version: latest,
+        release_url: RELEASES_URL.to_string(),
+    })
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -264,6 +436,9 @@ pub fn run() {
             fetch_arxiv_title,
             get_library,
             save_library,
+            get_settings,
+            save_settings,
+            check_for_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

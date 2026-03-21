@@ -3,6 +3,7 @@ import { Layers, CheckCircle, Circle } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import type { PdfFile, PdfTheme, Annotation, OutlineItem, LibraryStore } from "./types";
+import { useSettings } from "./useSettings";
 import { AnnotationTool, PageLayout } from "./components/Toolbar";
 import TitleBar from "./components/TitleBar";
 import Sidebar from "./components/Sidebar";
@@ -10,6 +11,7 @@ import Toolbar from "./components/Toolbar";
 import PdfViewer from "./components/PdfViewer";
 import EmptyState, { addRecentFile } from "./components/EmptyState";
 import ArtifactsPanel from "./components/ArtifactsPanel";
+import SettingsPage from "./components/SettingsPage";
 
 interface OpenedPdf { data: string; title: string | null; urls: string[]; }
 
@@ -55,11 +57,26 @@ export default function App() {
   const [activeTool, setActiveTool] = useState<AnnotationTool>("select");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const { settings, updateSettings: _updateSettings } = useSettings();
+
+  const updateSettings = useCallback((patch: Partial<typeof settings>) => {
+    _updateSettings(patch);
+    // Apply reading-related changes to all currently open files
+    const readingPatch: Partial<PdfFile> = {};
+    if (patch.defaultZoom !== undefined) readingPatch.zoom = patch.defaultZoom;
+    if (patch.defaultTheme !== undefined) readingPatch.theme = patch.defaultTheme;
+    if (patch.defaultLayout !== undefined) readingPatch.pageLayout = patch.defaultLayout;
+    if (Object.keys(readingPatch).length > 0) {
+      setFiles(prev => prev.map(f => ({ ...f, ...readingPatch })));
+    }
+  }, [_updateSettings]);
   const [readPages, setReadPages] = useState<Record<string, number[]>>({});
   const libraryRef = useRef<LibraryStore | null>(null);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? null;
-  const isHome = showHome || !activeFileId;
+  const isHome = (showHome || !activeFileId) && !showSettings;
+  const isSettings = showSettings;
   const fileTotalPages: Record<string, number> = {};
   for (const f of files) fileTotalPages[f.diskPath] = f.totalPages;
 
@@ -94,9 +111,11 @@ export default function App() {
   const selectFile = useCallback((id: string) => {
     setActiveFileId(id);
     setShowHome(false);
+    setShowSettings(false);
   }, []);
 
-  const goHome = useCallback(() => setShowHome(true), []);
+  const goHome = useCallback(() => { setShowHome(true); setShowSettings(false); }, []);
+  const goSettings = useCallback(() => { setShowSettings(true); setShowHome(false); }, []);
 
   async function loadPdfFromPath(diskPath: string, fallbackName: string): Promise<{ blobUrl: string; name: string; urls: string[] }> {
     const { data, title, urls } = await invoke<OpenedPdf>("open_pdf", { path: diskPath });
@@ -125,7 +144,7 @@ export default function App() {
       setFiles(prev => [...prev, ...loaded.map(({ id, name, blobUrl, diskPath, urls, savedAnns }) => ({
         id, name, path: blobUrl, diskPath,
         totalPages: 1, currentPage: 1,
-        zoom: 1.5, theme: "classic" as const, pageLayout: "single" as const, rotation: 0,
+        zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
         annotations: savedAnns, outline: [], artifactUrls: urls,
       }))]);
       const lastId = loaded[loaded.length - 1]?.id;
@@ -168,7 +187,7 @@ export default function App() {
       setFiles(prev => [...prev, {
         id, name: resolvedName, path: blobUrl, diskPath: filePath,
         totalPages: 1, currentPage: 1,
-        zoom: 1.5, theme: "classic", pageLayout: "single", rotation: 0,
+        zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
         annotations: savedAnns, outline: [], artifactUrls: urls,
       }]);
       setActiveFileId(id);
@@ -244,12 +263,14 @@ export default function App() {
         onSelectFile={selectFile}
         onCloseFile={closeFile}
         onGoHome={goHome}
+        onGoSettings={goSettings}
         onOpenFile={openFile}
         isHome={isHome}
+        isSettings={isSettings}
       />
 
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {!isHome && activeFile && (
+        {!isHome && !isSettings && activeFile && (
           <Sidebar
             activeFile={activeFile}
             collapsed={sidebarCollapsed}
@@ -260,7 +281,9 @@ export default function App() {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, overflow: "hidden" }}>
-          {isHome ? (
+          {isSettings ? (
+            <SettingsPage settings={settings} onUpdate={updateSettings} />
+          ) : isHome ? (
             <EmptyState
               onOpenFile={openFile}
               onOpenPath={openFromPath}
@@ -268,6 +291,7 @@ export default function App() {
               readPages={readPages}
               fileTotalPages={fileTotalPages}
               onResumeFile={selectFile}
+              showThumbnails={settings.showThumbnails}
             />
           ) : activeFile ? (
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
@@ -326,6 +350,7 @@ export default function App() {
                   onDeleteAnnotation={deleteAnnotation}
                   onZoomChange={z => updateFile(activeFile.id, { zoom: z })}
                   onOutlineLoad={(outline: OutlineItem[]) => updateFile(activeFile.id, { outline })}
+                  onPageChange={page => updateFile(activeFile.id, { currentPage: page })}
                 />
                 <Toolbar
                   currentPage={activeFile.currentPage}
@@ -359,6 +384,7 @@ export default function App() {
               readPages={readPages}
               fileTotalPages={fileTotalPages}
               onResumeFile={selectFile}
+              showThumbnails={settings.showThumbnails}
             />
           )}
         </div>

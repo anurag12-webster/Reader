@@ -35,6 +35,7 @@ interface EmptyStateProps {
   readPages?: Record<string, number[]>;
   /** path → total pages, from open files */
   fileTotalPages?: Record<string, number>;
+  showThumbnails?: boolean;
 }
 
 // ── Tauri helpers ─────────────────────────────────────────────────────────────
@@ -442,7 +443,7 @@ function FolderCard({
 
 function PdfCard({
   file, index, isCompleted, folders, readPages, totalPages, onOpen, onToggleCompleted, onRemove, onMoveToFolder, onRemoveFromFolder,
-  inFolder = false,
+  inFolder = false, showThumbnails = true,
 }: {
   file: RecentFile;
   index: number;
@@ -456,6 +457,7 @@ function PdfCard({
   onMoveToFolder: (folderId: string) => void;
   onRemoveFromFolder?: () => void;
   inFolder?: boolean;
+  showThumbnails?: boolean;
 }) {
   const [hov, setHov] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -552,7 +554,7 @@ function PdfCard({
           </div>
         )}
 
-        <PdfThumbnail path={file.path} accent={accent} />
+        {showThumbnails && <PdfThumbnail path={file.path} accent={accent} />}
 
         <div style={{ minWidth: 0 }}>
           <div style={{
@@ -589,7 +591,7 @@ function PdfCard({
 // ── Folder View (expanded) ────────────────────────────────────────────────────
 
 function FolderView({
-  folder, recents, library, onBack, onOpen, onToggleCompleted, onRemove, onRemoveFromFolder, folders, allReadPages, fileTotalPages,
+  folder, recents, library, onBack, onOpen, onToggleCompleted, onRemove, onRemoveFromFolder, folders, allReadPages, fileTotalPages, showThumbnails = true,
 }: {
   folder: Folder;
   recents: RecentFile[];
@@ -602,6 +604,7 @@ function FolderView({
   folders: Folder[];
   allReadPages: Record<string, number[]>;
   fileTotalPages: Record<string, number>;
+  showThumbnails?: boolean;
 }) {
   const completedSet = new Set(library.completedPaths);
   const files = folder.filePaths
@@ -659,6 +662,7 @@ function FolderView({
               onMoveToFolder={() => {}}
               onRemoveFromFolder={() => onRemoveFromFolder(file.path)}
               inFolder
+              showThumbnails={showThumbnails}
             />
           ))}
         </div>
@@ -773,7 +777,7 @@ function CompletedSection({
 
 // ── Main EmptyState ───────────────────────────────────────────────────────────
 
-export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onResumeFile, readPages: extReadPages, fileTotalPages = {} }: EmptyStateProps) {
+export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onResumeFile, readPages: extReadPages, fileTotalPages = {}, showThumbnails = true }: EmptyStateProps) {
   const [recents, setRecents] = useState<RecentFile[]>([]);
   const [library, setLibrary] = useState<LibraryStore>({ completedPaths: [], folders: [], readPages: {}, annotations: {} });
   const [draggingFile, setDraggingFile] = useState(false);
@@ -923,7 +927,7 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
               </h1>
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {!openFolder && (
                 <button
                   onClick={createFolder}
@@ -988,6 +992,7 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
               onToggleCompleted={toggleCompleted}
               onRemove={removeRecent}
               onRemoveFromFolder={path => removeFromFolder(path, openFolder.id)}
+              showThumbnails={showThumbnails}
             />
           ) : (
             <>
@@ -1091,6 +1096,7 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
                         onToggleCompleted={() => toggleCompleted(file.path)}
                         onRemove={() => removeRecent(file.path)}
                         onMoveToFolder={folderId => moveToFolder(file.path, folderId)}
+                        showThumbnails={showThumbnails}
                       />
                     ))}
                   </div>
@@ -1157,6 +1163,7 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
           </div>
         </div>
       )}
+
     </div>
   );
 }

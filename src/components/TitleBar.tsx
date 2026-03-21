@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { BookOpen, Minus, Square, X, House, Plus } from "lucide-react";
+import { BookOpen, Minus, Square, X, House, Plus, Settings } from "lucide-react";
 import { useState } from "react";
 import type { PdfFile } from "../types";
 
@@ -18,12 +18,14 @@ interface TitleBarProps {
   onSelectFile: (id: string) => void;
   onCloseFile: (id: string) => void;
   onGoHome: () => void;
+  onGoSettings: () => void;
   onOpenFile: () => void;
   isHome: boolean;
+  isSettings: boolean;
 }
 
 export default function TitleBar({
-  files, activeFileId, onSelectFile, onCloseFile, onGoHome, onOpenFile, isHome,
+  files, activeFileId, onSelectFile, onCloseFile, onGoHome, onGoSettings, onOpenFile, isHome, isSettings,
 }: TitleBarProps) {
   const win = getCurrentWindow();
   const minimize = () => win.minimize();
@@ -62,11 +64,11 @@ export default function TitleBar({
         </div>
       </div>
 
-      {/* Tab strip */}
+      {/* Tab strip — drag region on the flex container, no-drag on interactive children */}
       <div style={{
         flex: 1, display: "flex", alignItems: "center",
         gap: 2, overflow: "hidden",
-        WebkitAppRegion: "no-drag",
+        WebkitAppRegion: "drag",
         padding: "0 4px",
       } as DragStyle}>
 
@@ -76,6 +78,14 @@ export default function TitleBar({
           icon={<House size={11} strokeWidth={1.8} />}
           isActive={isHome}
           onClick={onGoHome}
+        />
+
+        {/* Settings tab */}
+        <Tab
+          label="Settings"
+          icon={<Settings size={11} strokeWidth={1.8} />}
+          isActive={isSettings}
+          onClick={onGoSettings}
         />
 
         {/* File tabs */}
@@ -111,7 +121,8 @@ export default function TitleBar({
             color: "var(--text-muted)", background: "transparent",
             transition: "background var(--duration-fast), color var(--duration-fast)",
             marginLeft: 2,
-          }}
+            WebkitAppRegion: "no-drag",
+          } as DragStyle}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "var(--bg-hover)"; (e.currentTarget as HTMLElement).style.color = "var(--text-primary)"; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
         >
@@ -182,7 +193,8 @@ function Tab({
         cursor: "pointer",
         transition: "background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out)",
         position: "relative",
-      }}
+        WebkitAppRegion: "no-drag",
+      } as DragStyle}
     >
       <span style={{ flexShrink: 0, display: "flex", alignItems: "center", color: isActive ? "var(--text-primary)" : "var(--text-dim)" }}>
         {icon}

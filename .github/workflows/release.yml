@@ -17,9 +17,6 @@ jobs:
           - platform: windows-latest
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-win-x64.tgz
 
-          - platform: macos-latest
-            pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz
-
           - platform: ubuntu-22.04
             pdfium-url: https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-linux-x64.tgz
 
@@ -56,18 +53,7 @@ jobs:
           curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
           tar -xzf pdfium.tgz
           cp bin/pdfium.dll src-tauri/bin/pdfium.dll
-          # linker needs pdfium.lib (the import library)
           cp lib/pdfium.dll.lib src-tauri/lib/pdfium.lib
-
-      - name: Download pdfium (macOS)
-        if: matrix.platform == 'macos-latest'
-        shell: bash
-        run: |
-          mkdir -p src-tauri/bin src-tauri/lib
-          curl -L "${{ matrix.pdfium-url }}" -o pdfium.tgz
-          tar -xzf pdfium.tgz
-          cp lib/libpdfium.dylib src-tauri/bin/libpdfium.dylib
-          cp lib/libpdfium.dylib src-tauri/lib/libpdfium.dylib
 
       - name: Download pdfium (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -82,28 +68,7 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build Tauri app (macOS — ad-hoc sign)
-        if: matrix.platform == 'macos-latest'
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_SIGNING_IDENTITY: "-"
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Reader ${{ github.ref_name }}
-          releaseBody: |
-            Download the installer for your platform below.
-
-            **Windows** (x64): `PDF Reader_x64_en-US.msi` or `PDF Reader_x64-setup.exe`
-            **macOS** (Apple Silicon): `PDF Reader_aarch64.dmg`
-            **Linux** (x64): `PDF Reader_amd64.AppImage` or `PDF Reader_amd64.deb`
-
-            > **macOS note**: If you see "unidentified developer", right-click the app → Open → Open.
-          releaseDraft: false
-          prerelease: false
-
-      - name: Build Tauri app (Windows + Linux)
-        if: matrix.platform != 'macos-latest'
+      - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -111,10 +76,22 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Reader ${{ github.ref_name }}
           releaseBody: |
-            Download the installer for your platform below.
+            ## What's new
+
+            - **Settings page** — dedicated tab with Reading, Library, Updates, Privacy, and Shortcuts panels
+            - **Reading defaults** — set your preferred zoom, theme, and layout; applied to all open files instantly
+            - **Continuous scroll** — new layout mode for infinite vertical scrolling through all pages
+            - **Smooth zoom** — Ctrl+scroll zoom is now smooth with CSS scaling during gesture, single re-render on settle
+            - **Thumbnails toggle** — disable library thumbnails for better performance on slower machines
+            - **Auto-update check** — check for new versions from Settings → Updates
+            - **Bug fix** — window dragging now works reliably on all platforms
+            - **Bug fix** — app freezes fixed by moving PDF rendering off the main async thread
+            - **Bug fix** — artifact/link extraction now works on Linux
+            - **Bug fix** — outline navigation works correctly in continuous scroll mode
+
+            ## Downloads
 
             **Windows** (x64): `PDF Reader_x64_en-US.msi` or `PDF Reader_x64-setup.exe`
-            **macOS** (Apple Silicon): `PDF Reader_aarch64.dmg`
             **Linux** (x64): `PDF Reader_amd64.AppImage` or `PDF Reader_amd64.deb`
           releaseDraft: false
           prerelease: false
