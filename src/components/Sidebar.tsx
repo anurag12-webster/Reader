@@ -12,6 +12,10 @@ interface SidebarProps {
 }
 
 async function resolveDestPage(pdf: pdfjsLib.PDFDocumentProxy, dest: OutlineItem["dest"]): Promise<number | null> {
+  // Rust-generated outline uses "__p__N" to encode 1-based page numbers directly
+  if (typeof dest === "string" && dest.startsWith("__p__")) {
+    return parseInt(dest.slice(5), 10);
+  }
   try {
     let resolved: unknown[] | null = null;
     if (typeof dest === "string") {

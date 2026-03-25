@@ -13,7 +13,7 @@ import EmptyState, { addRecentFile } from "./components/EmptyState";
 import ArtifactsPanel from "./components/ArtifactsPanel";
 import SettingsPage from "./components/SettingsPage";
 
-interface OpenedPdf { data: string; title: string | null; urls: string[]; }
+interface OpenedPdf { data: string; title: string | null; urls: string[]; outline: OutlineItem[]; }
 
 function ArtifactsToggle({ active, onClick }: { active: boolean; onClick: () => void }) {
   return (
@@ -117,12 +117,12 @@ export default function App() {
   const goHome = useCallback(() => { setShowHome(true); setShowSettings(false); }, []);
   const goSettings = useCallback(() => { setShowSettings(true); setShowHome(false); }, []);
 
-  async function loadPdfFromPath(diskPath: string, fallbackName: string): Promise<{ blobUrl: string; name: string; urls: string[] }> {
-    const { data, title, urls } = await invoke<OpenedPdf>("open_pdf", { path: diskPath });
+  async function loadPdfFromPath(diskPath: string, fallbackName: string): Promise<{ blobUrl: string; name: string; urls: string[]; outline: OutlineItem[] }> {
+    const { data, title, urls, outline } = await invoke<OpenedPdf>("open_pdf", { path: diskPath });
     const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
     const blobUrl = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
     const name = title ?? fallbackName;
-    return { blobUrl, name, urls };
+    return { blobUrl, name, urls, outline };
   }
 
   const openFile = useCallback(async () => {
@@ -134,18 +134,18 @@ export default function App() {
 
       const loaded = await Promise.all(paths.map(async diskPath => {
         const fallbackName = diskPath.split(/[\\/]/).pop() ?? diskPath;
-        const { blobUrl, name, urls } = await loadPdfFromPath(diskPath, fallbackName.replace(/\.pdf$/i, ""));
+        const { blobUrl, name, urls, outline } = await loadPdfFromPath(diskPath, fallbackName.replace(/\.pdf$/i, ""));
         const id = crypto.randomUUID();
         await addRecentFile(diskPath, name);
         const savedAnns = libraryRef.current?.annotations?.[diskPath] ?? [];
-        return { id, name, blobUrl, diskPath, urls, savedAnns };
+        return { id, name, blobUrl, diskPath, urls, outline, savedAnns };
       }));
 
-      setFiles(prev => [...prev, ...loaded.map(({ id, name, blobUrl, diskPath, urls, savedAnns }) => ({
+      setFiles(prev => [...prev, ...loaded.map(({ id, name, blobUrl, diskPath, urls, outline, savedAnns }) => ({
         id, name, path: blobUrl, diskPath,
         totalPages: 1, currentPage: 1,
         zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
-        annotations: savedAnns, outline: [], artifactUrls: urls,
+        annotations: savedAnns, outline, artifactUrls: urls,
       }))]);
       const lastId = loaded[loaded.length - 1]?.id;
       if (lastId) { setActiveFileId(lastId); setShowHome(false); }
@@ -179,7 +179,7 @@ export default function App() {
       const existing = files.find(f => f.name === name);
       if (existing) { selectFile(existing.id); return; }
 
-      const { blobUrl, name: resolvedName, urls } = await loadPdfFromPath(filePath, name.replace(/\.pdf$/i, ""));
+      const { blobUrl, name: resolvedName, urls, outline } = await loadPdfFromPath(filePath, name.replace(/\.pdf$/i, ""));
       const id = crypto.randomUUID();
       const savedAnns = libraryRef.current?.annotations?.[filePath] ?? [];
 
@@ -188,7 +188,7 @@ export default function App() {
         id, name: resolvedName, path: blobUrl, diskPath: filePath,
         totalPages: 1, currentPage: 1,
         zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
-        annotations: savedAnns, outline: [], artifactUrls: urls,
+        annotations: savedAnns, outline, artifactUrls: urls,
       }]);
       setActiveFileId(id);
       setShowHome(false);

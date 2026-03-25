@@ -97,11 +97,19 @@ fn remove_recent(app: tauri::AppHandle, path: String) {
 
 // ── PDF open ──────────────────────────────────────────────────────────────────
 
+#[derive(Serialize, Clone)]
+pub struct OutlineItem {
+    pub title: String,
+    pub dest: String,   // "__p__N" where N is 1-based page number
+    pub items: Vec<OutlineItem>,
+}
+
 #[derive(Serialize)]
 pub struct OpenedPdf {
     pub data: String,
     pub title: Option<String>,
     pub urls: Vec<String>,
+    pub outline: Vec<OutlineItem>,
 }
 
 /// Opens a PDF: reads bytes on a blocking thread, extracts title + URLs (pdfium is CPU-bound),
@@ -121,7 +129,7 @@ async fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, Stri
 
     // Offload all blocking IO + pdfium work to a dedicated thread pool thread
     // so Tauri's async runtime is never stalled
-    let (data, title, urls) = tokio::task::spawn_blocking(move || {
+    let (data, title, urls, outline) = tokio::task::spawn_blocking(move || {
         use base64::Engine;
         let bytes = fs::read(&path_clone).map_err(|e| e.to_string())?;
         let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -131,7 +139,8 @@ async fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, Stri
         } else {
             extract_pdf_urls(&path_clone)
         };
-        Ok::<_, String>((data, title, urls))
+        let outline = extract_pdf_outline(&path_clone);
+        Ok::<_, String>((data, title, urls, outline))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -153,7 +162,7 @@ async fn open_pdf(app: tauri::AppHandle, path: String) -> Result<OpenedPdf, Stri
         urls
     };
 
-    Ok(OpenedPdf { data, title, urls: final_urls })
+    Ok(OpenedPdf { data, title, urls: final_urls, outline })
 }
 
 fn extract_pdf_title(path: &str) -> Option<String> {
@@ -201,6 +210,75 @@ fn extract_pdf_urls(path: &str) -> Vec<String> {
         }
     }
     urls
+}
+
+// ── Outline extraction ────────────────────────────────────────────────────────
+
+fn extract_pdf_outline(path: &str) -> Vec<OutlineItem> {
+    let Some(pdfium) = bind_pdfium() else { return vec![] };
+    let Ok(doc) = pdfium.load_pdf_from_file(path, None) else { return vec![] };
+
+    // Regex patterns for academic section headings
+    // Matches: "1 Introduction", "2.3 Method", "A Appendix", "Abstract", "References", etc.
+    let numbered = regex::Regex::new(
+        r"(?x)^
+        (\d+(\.\d+)*)   # e.g. 1, 2.3, 4.1.2
+        [\s\.\:]+
+        ([A-Z][^\n]{1,60})  # heading text
+        $"
+    ).unwrap();
+    let unnumbered = regex::Regex::new(
+        r"^(Abstract|Introduction|Conclusion|Conclusions|References|Acknowledgements?|Appendix|Related Work|Background|Methodology|Experiments?|Results?|Discussion|Future Work|Overview|Summary)$"
+    ).unwrap();
+
+    let mut items: Vec<OutlineItem> = Vec::new();
+    let mut seen_titles = std::collections::HashSet::new();
+
+    for (page_idx, page) in doc.pages().iter().enumerate() {
+        let page_num = page_idx + 1;
+        let Ok(text_obj) = page.text() else { continue };
+        let text = text_obj.all();
+
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.len() > 80 { continue; }
+
+            let heading = if let Some(caps) = numbered.captures(line) {
+                let section = caps.get(1).map_or("", |m| m.as_str());
+                let title = caps.get(3).map_or("", |m| m.as_str()).trim();
+                let depth = section.chars().filter(|&c| c == '.').count();
+                Some((format!("{} {}", section, title), depth))
+            } else if unnumbered.is_match(line) {
+                Some((line.to_string(), 0))
+            } else {
+                None
+            };
+
+            if let Some((title, depth)) = heading {
+                if seen_titles.contains(&title) { continue; }
+                seen_titles.insert(title.clone());
+
+                let item = OutlineItem {
+                    title,
+                    dest: format!("__p__{}", page_num),
+                    items: vec![],
+                };
+
+                if depth == 0 {
+                    items.push(item);
+                } else {
+                    // nest under last top-level section
+                    if let Some(parent) = items.last_mut() {
+                        parent.items.push(item);
+                    } else {
+                        items.push(item);
+                    }
+                }
+            }
+        }
+    }
+
+    items
 }
 
 // ── Thumbnail ─────────────────────────────────────────────────────────────────
