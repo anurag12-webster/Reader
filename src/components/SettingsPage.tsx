@@ -7,7 +7,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import type { AppSettings, PdfTheme, PageLayout } from "../types";
 
-const APP_VERSION = "0.1.5";
+const APP_VERSION = "0.4.0";
 
 type NavItem = "general" | "reading" | "library" | "updates" | "privacy" | "shortcuts";
 
@@ -16,6 +16,7 @@ type UpdateState =
   | { status: "checking" }
   | { status: "upToDate" }
   | { status: "available"; version: string; url: string }
+  | { status: "downloading" }
   | { status: "error" };
 
 function openUrl(url: string) {
@@ -49,6 +50,16 @@ export default function SettingsPage({ settings, onUpdate }: Props) {
       setUpdateState(r.up_to_date
         ? { status: "upToDate" }
         : { status: "available", version: r.latest_version, url: r.release_url });
+    } catch {
+      setUpdateState({ status: "error" });
+    }
+  }
+
+  async function installUpdate() {
+    setUpdateState({ status: "downloading" });
+    try {
+      await invoke("install_update");
+      // app restarts automatically after install
     } catch {
       setUpdateState({ status: "error" });
     }
@@ -96,7 +107,7 @@ export default function SettingsPage({ settings, onUpdate }: Props) {
           {active === "general"   && <GeneralPanel />}
           {active === "reading"   && <ReadingPanel settings={settings} onUpdate={onUpdate} />}
           {active === "library"   && <LibraryPanel settings={settings} onUpdate={onUpdate} />}
-          {active === "updates"   && <UpdatesPanel state={updateState} onCheck={checkForUpdate} />}
+          {active === "updates"   && <UpdatesPanel state={updateState} onCheck={checkForUpdate} onInstall={installUpdate} />}
           {active === "privacy"   && <PrivacyPanel />}
           {active === "shortcuts" && <ShortcutsPanel />}
         </div>
@@ -346,7 +357,7 @@ function LibraryPanel({ settings, onUpdate }: { settings: AppSettings; onUpdate:
 
 // ── Updates panel ─────────────────────────────────────────────────────────────
 
-function UpdatesPanel({ state, onCheck }: { state: UpdateState; onCheck: () => void }) {
+function UpdatesPanel({ state, onCheck, onInstall }: { state: UpdateState; onCheck: () => void; onInstall: () => void }) {
   return (
     <>
       <PanelTitle>Updates</PanelTitle>
@@ -358,13 +369,13 @@ function UpdatesPanel({ state, onCheck }: { state: UpdateState; onCheck: () => v
         </Row>
       </Section>
       <Section title="Check for updates">
-        <UpdateCard state={state} onCheck={onCheck} />
+        <UpdateCard state={state} onCheck={onCheck} onInstall={onInstall} />
       </Section>
     </>
   );
 }
 
-function UpdateCard({ state, onCheck }: { state: UpdateState; onCheck: () => void }) {
+function UpdateCard({ state, onCheck, onInstall }: { state: UpdateState; onCheck: () => void; onInstall: () => void }) {
   if (state.status === "available") {
     return (
       <div style={{ padding: "16px 18px", borderRadius: 10, background: "rgba(74,155,127,0.07)", border: "1px solid rgba(74,155,127,0.25)", display: "flex", flexDirection: "column", gap: 12 }}>
@@ -375,11 +386,27 @@ function UpdateCard({ state, onCheck }: { state: UpdateState; onCheck: () => voi
         <p style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.65, margin: 0 }}>
           A new version is ready. Your library, annotations, and read progress are not affected.
         </p>
-        <button onClick={() => openUrl(state.url)} style={{ display: "inline-flex", alignItems: "center", gap: 6, alignSelf: "flex-start", padding: "8px 16px", borderRadius: 7, background: "#4A9B7F", border: "none", color: "#fff", fontSize: 12, fontWeight: 600, transition: "opacity var(--duration-fast)", cursor: "pointer" }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.82"; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}>
-          <Download size={12} strokeWidth={2.5} /> Download on GitHub
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onInstall} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 16px", borderRadius: 7, background: "#4A9B7F", border: "none", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "opacity var(--duration-fast)" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "0.82"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}>
+            <Download size={12} strokeWidth={2.5} /> Install update
+          </button>
+          <button onClick={() => openUrl(state.url)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 7, background: "transparent", border: "1px solid var(--border-default)", color: "var(--text-dim)", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>
+            <ExternalLink size={11} strokeWidth={2} /> View release
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (state.status === "downloading") {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", borderRadius: 10, background: "rgba(74,155,127,0.06)", border: "1px solid rgba(74,155,127,0.18)" }}>
+        <RefreshCw size={16} color="#4A9B7F" strokeWidth={2} style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }} />
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>Downloading update…</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>The app will restart automatically when done</div>
+        </div>
       </div>
     );
   }

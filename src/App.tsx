@@ -12,6 +12,7 @@ import PdfViewer from "./components/PdfViewer";
 import EmptyState, { addRecentFile } from "./components/EmptyState";
 import ArtifactsPanel from "./components/ArtifactsPanel";
 import SettingsPage from "./components/SettingsPage";
+import PdfSearch from "./components/PdfSearch";
 
 interface OpenedPdf { data: string; title: string | null; urls: string[]; outline: OutlineItem[]; }
 
@@ -58,6 +59,8 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const { settings, updateSettings: _updateSettings } = useSettings();
 
   const updateSettings = useCallback((patch: Partial<typeof settings>) => {
@@ -106,7 +109,7 @@ export default function App() {
     });
   }
 
-  useEffect(() => { setArtifactsOpen(false); }, [activeFileId, showHome]);
+  useEffect(() => { setArtifactsOpen(false); setSearchOpen(false); setSearchQuery(""); }, [activeFileId, showHome]);
 
   const selectFile = useCallback((id: string) => {
     setActiveFileId(id);
@@ -143,7 +146,7 @@ export default function App() {
 
       setFiles(prev => [...prev, ...loaded.map(({ id, name, blobUrl, diskPath, urls, outline, savedAnns }) => ({
         id, name, path: blobUrl, diskPath,
-        totalPages: 1, currentPage: 1,
+        totalPages: 1, currentPage: libraryRef.current?.lastPage?.[diskPath] ?? 1,
         zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
         annotations: savedAnns, outline, artifactUrls: urls,
       }))]);
@@ -186,7 +189,7 @@ export default function App() {
       await addRecentFile(filePath, resolvedName);
       setFiles(prev => [...prev, {
         id, name: resolvedName, path: blobUrl, diskPath: filePath,
-        totalPages: 1, currentPage: 1,
+        totalPages: 1, currentPage: libraryRef.current?.lastPage?.[filePath] ?? 1,
         zoom: settings.defaultZoom, theme: settings.defaultTheme, pageLayout: settings.defaultLayout, rotation: 0,
         annotations: savedAnns, outline, artifactUrls: urls,
       }]);
@@ -196,6 +199,16 @@ export default function App() {
       console.error("Failed to open recent file:", e);
     }
   }, [files, selectFile]);
+
+  function persistLastPage(diskPath: string, page: number) {
+    if (!libraryRef.current) return;
+    const store = {
+      ...libraryRef.current,
+      lastPage: { ...(libraryRef.current.lastPage ?? {}), [diskPath]: page },
+    };
+    libraryRef.current = store;
+    invoke("save_library", { store }).catch(() => {});
+  }
 
   function persistAnnotations(diskPath: string, anns: Annotation[]) {
     if (!libraryRef.current) return;
@@ -228,18 +241,29 @@ export default function App() {
       if (tag !== "INPUT" && tag !== "TEXTAREA") {
         if (e.key === "ArrowRight" || e.key === "ArrowDown") {
           e.preventDefault();
-          if (activeFile.currentPage < activeFile.totalPages)
-            updateFile(activeFileId, { currentPage: activeFile.currentPage + 1 });
+          if (activeFile.currentPage < activeFile.totalPages) {
+            const p = activeFile.currentPage + 1;
+            updateFile(activeFileId, { currentPage: p });
+            persistLastPage(activeFile.diskPath, p);
+          }
           return;
         }
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
           e.preventDefault();
-          if (activeFile.currentPage > 1)
-            updateFile(activeFileId, { currentPage: activeFile.currentPage - 1 });
+          if (activeFile.currentPage > 1) {
+            const p = activeFile.currentPage - 1;
+            updateFile(activeFileId, { currentPage: p });
+            persistLastPage(activeFile.diskPath, p);
+          }
           return;
         }
       }
       if (!e.ctrlKey && !e.metaKey) return;
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setSearchOpen(v => !v);
+        return;
+      }
       if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         updateFile(activeFileId, { zoom: Math.min(activeFile.zoom + 0.15, 4) });
@@ -297,6 +321,15 @@ export default function App() {
             <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
               <div style={{ position: "relative", flex: 1, overflow: "hidden" }}>
                 <ArtifactsToggle active={artifactsOpen} onClick={() => setArtifactsOpen(v => !v)} />
+                {searchOpen && (
+                  <PdfSearch
+                    filePath={activeFile.path}
+                    totalPages={activeFile.totalPages}
+                    onJumpToPage={page => { updateFile(activeFile.id, { currentPage: page }); persistLastPage(activeFile.diskPath, page); }}
+                    onQueryChange={setSearchQuery}
+                    onClose={() => { setSearchOpen(false); setSearchQuery(""); }}
+                  />
+                )}
 
                 {/* Mark page read */}
                 {(() => {
@@ -339,6 +372,7 @@ export default function App() {
                   key={activeFile.id}
                   filePath={activeFile.path}
                   currentPage={activeFile.currentPage}
+                  searchQuery={searchOpen ? searchQuery : undefined}
                   zoom={activeFile.zoom}
                   theme={activeFile.theme}
                   activeTool={activeTool}
@@ -350,7 +384,7 @@ export default function App() {
                   onDeleteAnnotation={deleteAnnotation}
                   onZoomChange={z => updateFile(activeFile.id, { zoom: z })}
                   onOutlineLoad={(outline: OutlineItem[]) => updateFile(activeFile.id, { outline })}
-                  onPageChange={page => updateFile(activeFile.id, { currentPage: page })}
+                  onPageChange={page => { updateFile(activeFile.id, { currentPage: page }); persistLastPage(activeFile.diskPath, page); }}
                 />
                 <Toolbar
                   currentPage={activeFile.currentPage}
@@ -363,9 +397,9 @@ export default function App() {
                   onZoomIn={() => updateFile(activeFile.id, { zoom: Math.min(activeFile.zoom + 0.15, 4) })}
                   onZoomOut={() => updateFile(activeFile.id, { zoom: Math.max(activeFile.zoom - 0.15, 0.25) })}
                   onZoomReset={() => updateFile(activeFile.id, { zoom: 1.5 })}
-                  onPrevPage={() => updateFile(activeFile.id, { currentPage: Math.max(activeFile.currentPage - 1, 1) })}
-                  onNextPage={() => updateFile(activeFile.id, { currentPage: Math.min(activeFile.currentPage + 1, activeFile.totalPages) })}
-                  onPageInput={page => updateFile(activeFile.id, { currentPage: page })}
+                  onPrevPage={() => { const p = Math.max(activeFile.currentPage - 1, 1); updateFile(activeFile.id, { currentPage: p }); persistLastPage(activeFile.diskPath, p); }}
+                  onNextPage={() => { const p = Math.min(activeFile.currentPage + 1, activeFile.totalPages); updateFile(activeFile.id, { currentPage: p }); persistLastPage(activeFile.diskPath, p); }}
+                  onPageInput={page => { updateFile(activeFile.id, { currentPage: page }); persistLastPage(activeFile.diskPath, page); }}
                   onThemeChange={(theme: PdfTheme) => updateFile(activeFile.id, { theme })}
                   onToolChange={setActiveTool}
                   onPageLayoutChange={(pageLayout: PageLayout) => updateFile(activeFile.id, { pageLayout })}

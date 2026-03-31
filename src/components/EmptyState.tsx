@@ -8,8 +8,52 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import type { Folder, LibraryStore } from "../types";
 
-// Module-level drag state — WebView2 on Windows doesn't support custom dataTransfer types
+// Module-level pointer drag state — HTML5 drag API is broken in WebView2 on Windows
 let _draggedPdfPath: string | null = null;
+let _draggedPdfName: string | null = null;
+let _pointerDragActive = false;
+let _wasDragging = false;
+let _pointerStartX = 0;
+let _pointerStartY = 0;
+const DRAG_THRESHOLD = 6; // px before drag starts
+
+// Ghost element shown while dragging
+let _ghostEl: HTMLDivElement | null = null;
+
+function createGhost(name: string, x: number, y: number) {
+  if (_ghostEl) _ghostEl.remove();
+  const el = document.createElement("div");
+  el.textContent = name;
+  el.style.cssText = `
+    position:fixed; pointer-events:none; z-index:9999;
+    padding:6px 10px; border-radius:7px; font-size:11px; font-weight:500;
+    background:#1e1e1e; border:1px solid rgba(255,255,255,0.15); color:#fff;
+    white-space:nowrap; box-shadow:0 4px 16px rgba(0,0,0,0.5);
+    transform:translate(-50%,-110%); opacity:0.95;
+    left:${x}px; top:${y}px;
+  `;
+  document.body.appendChild(el);
+  _ghostEl = el;
+}
+
+function moveGhost(x: number, y: number) {
+  if (_ghostEl) { _ghostEl.style.left = x + "px"; _ghostEl.style.top = y + "px"; }
+}
+
+function removeGhost() {
+  if (_ghostEl) { _ghostEl.remove(); _ghostEl = null; }
+}
+
+// Folder hit-test registry
+const _folderRefs = new Map<string, HTMLElement>();
+
+function getFolderAtPoint(x: number, y: number): string | null {
+  for (const [id, el] of _folderRefs) {
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return id;
+  }
+  return null;
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -131,7 +175,7 @@ function PdfThumbnail({ path, accent, width = 64, height = 84 }: { path: string;
       transition: "box-shadow 0.2s ease",
     }}>
       {dataUrl ? (
-        <img src={dataUrl} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top", display: "block" }} />
+        <img src={dataUrl} draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: "top", display: "block" }} />
       ) : (
         <div style={{ width: "60%", height: "70%", display: "flex", flexDirection: "column", gap: 3, justifyContent: "center" }}>
           {[1, 0.6, 0.8, 0.5].map((w, i) => (
@@ -273,27 +317,31 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 // ── Folder Card ───────────────────────────────────────────────────────────────
 
 function FolderCard({
-  folder, onOpen, onRename, onDelete, onDrop, isDragOver, setDragOver,
+  folder, onOpen, onRename, onDelete, isDragOver, autoRename = false,
 }: {
   folder: Folder;
   onOpen: () => void;
   onRename: (name: string) => void;
   onDelete: () => void;
-  onDrop: (path: string) => void;
   isDragOver: boolean;
-  setDragOver: (v: boolean) => void;
+  autoRename?: boolean;
 }) {
   const [hov, setHov] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  const [renaming, setRenaming] = useState(autoRename);
   const [renameVal, setRenameVal] = useState(folder.name);
-  const [dropped, setDropped] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dragCounter = useRef(0);
+  const elRef = useRef<HTMLDivElement>(null);
   const accent = getFolderColor(folder.id);
   const count = folder.filePaths.length;
 
   useEffect(() => { if (renaming) inputRef.current?.select(); }, [renaming]);
+
+  // Register this folder's DOM element for pointer hit-testing
+  useEffect(() => {
+    if (elRef.current) _folderRefs.set(folder.id, elRef.current);
+    return () => { _folderRefs.delete(folder.id); };
+  }, [folder.id]);
 
   function commitRename() {
     const v = renameVal.trim();
@@ -302,58 +350,23 @@ function FolderCard({
     setRenaming(false);
   }
 
-  function handleDragEnter(e: React.DragEvent) {
-    if (!_draggedPdfPath) return;
-    e.preventDefault(); e.stopPropagation();
-    dragCounter.current += 1;
-    if (dragCounter.current === 1) setDragOver(true);
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    if (!_draggedPdfPath) return;
-    e.preventDefault(); e.stopPropagation();
-    e.dataTransfer.dropEffect = "move";
-  }
-
-  function handleDragLeave(e: React.DragEvent) {
-    e.preventDefault(); e.stopPropagation();
-    dragCounter.current -= 1;
-    if (dragCounter.current === 0) setDragOver(false);
-  }
-
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault(); e.stopPropagation();
-    dragCounter.current = 0;
-    setDragOver(false);
-    const path = _draggedPdfPath ?? e.dataTransfer.getData("text/plain");
-    _draggedPdfPath = null;
-    if (path) {
-      onDrop(path);
-      setDropped(true);
-      setTimeout(() => setDropped(false), 600);
-    }
-  }
-
   return (
     <>
       <div
-        onClick={onOpen}
+        ref={elRef}
+        onClick={() => { if (!_wasDragging) onOpen(); }}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
         onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-        onDragEnter={handleDragEnter}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
         style={{
           position: "relative",
           padding: "14px",
           background: isDragOver ? accent + "18" : hov ? "var(--bg-raised)" : "transparent",
-          border: `1px solid ${isDragOver ? accent + "88" : dropped ? accent + "66" : hov ? "var(--border-default)" : "var(--border-faint)"}`,
+          border: `1px solid ${isDragOver ? accent + "88" : hov ? "var(--border-default)" : "var(--border-faint)"}`,
           borderRadius: 10,
           cursor: "pointer",
           transition: "background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), transform 120ms var(--ease-spring)",
-          transform: isDragOver ? "scale(1.02)" : dropped ? "scale(0.98)" : "scale(1)",
+          transform: isDragOver ? "scale(1.02)" : "scale(1)",
           display: "flex", flexDirection: "column", gap: 10,
         }}
       >
@@ -461,7 +474,6 @@ function PdfCard({
 }) {
   const [hov, setHov] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
   const accent = getAccentColor(file.name);
 
   const menuItems: MenuItem[] = [
@@ -491,29 +503,29 @@ function PdfCard({
   return (
     <>
       <div
-        onClick={onOpen}
+        onClick={() => { if (!_wasDragging) onOpen(); }}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
         onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
-        draggable
-        onDragStart={e => {
+        onPointerDown={e => {
+          if (e.button !== 0) return;
+          _pointerStartX = e.clientX;
+          _pointerStartY = e.clientY;
           _draggedPdfPath = file.path;
-          e.dataTransfer.setData("text/plain", file.path);
-          e.dataTransfer.effectAllowed = "move";
-          setDragging(true);
+          _draggedPdfName = file.name.replace(/\.pdf$/i, "");
+          _pointerDragActive = false;
         }}
-        onDragEnd={() => { _draggedPdfPath = null; setDragging(false); }}
         style={{
           position: "relative",
           padding: "16px",
           background: hov ? "var(--bg-raised)" : "transparent",
           border: `1px solid ${hov ? "var(--border-default)" : "var(--border-faint)"}`,
-          borderRadius: 10, cursor: "pointer",
+          borderRadius: 10, cursor: "grab",
           transition: "background var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), opacity 150ms, transform 150ms",
           display: "flex", flexDirection: "column", gap: 12,
-          opacity: dragging ? 0.4 : isCompleted ? 0.55 : 1,
-          transform: dragging ? "scale(0.97)" : "scale(1)",
+          opacity: isCompleted ? 0.55 : 1,
           animation: `rowEnter var(--duration-base) var(--ease-out) ${index * 20}ms both`,
+          userSelect: "none",
         }}
       >
         {/* Context menu button */}
@@ -784,11 +796,64 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [newFolderId, setNewFolderId] = useState<string | null>(null);
 
   useEffect(() => {
     getRecentFiles().then(setRecents);
     getLibrary().then(setLibrary);
   }, []);
+
+  // ── Pointer-based drag (HTML5 drag API broken in WebView2/Windows) ──
+  const moveToFolderRef = useRef(moveToFolder);
+  useEffect(() => { moveToFolderRef.current = moveToFolder; });
+
+  useEffect(() => {
+    function onPointerMove(e: PointerEvent) {
+      if (!_draggedPdfPath) return;
+      const dx = e.clientX - _pointerStartX;
+      const dy = e.clientY - _pointerStartY;
+      if (!_pointerDragActive && Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+        _pointerDragActive = true;
+        createGhost(_draggedPdfName ?? "", e.clientX, e.clientY);
+      }
+      if (_pointerDragActive) {
+        moveGhost(e.clientX, e.clientY);
+        const hovId = getFolderAtPoint(e.clientX, e.clientY);
+        setDragOverFolderId(hovId);
+      }
+    }
+    function onPointerUp(e: PointerEvent) {
+      if (_pointerDragActive && _draggedPdfPath) {
+        const folderId = getFolderAtPoint(e.clientX, e.clientY);
+        if (folderId) moveToFolderRef.current(_draggedPdfPath, folderId);
+      }
+      removeGhost();
+      _wasDragging = _pointerDragActive;
+      _pointerDragActive = false;
+      _draggedPdfPath = null;
+      _draggedPdfName = null;
+      setDragOverFolderId(null);
+      if (_wasDragging) setTimeout(() => { _wasDragging = false; }, 100);
+    }
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, []);
+
+  // ── Keyboard shortcut: Ctrl/Cmd+Shift+N → new folder ──
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "N" && e.shiftKey && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        createFolder();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [library]);
 
   const updateLibrary = useCallback((updated: LibraryStore) => {
     setLibrary(updated);
@@ -827,6 +892,8 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
     const now = Date.now();
     const newFolder: Folder = { id, name: "New Folder", createdAt: now, filePaths: [] };
     updateLibrary({ ...library, folders: [...library.folders, newFolder] });
+    setNewFolderId(id);
+    setTimeout(() => setNewFolderId(null), 100);
     return id;
   }
 
@@ -849,7 +916,8 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
         if (f.id === folderId) {
           return f.filePaths.includes(path) ? f : { ...f, filePaths: [...f.filePaths, path] };
         }
-        return f;
+        // Remove from any other folder it was in
+        return { ...f, filePaths: f.filePaths.filter(p => p !== path) };
       }),
     });
   }
@@ -881,7 +949,8 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
   const hasContent = hasRecents || openFiles.length > 0 || library.folders.length > 0;
 
   // Non-completed recents not in any folder that's the "main" grid items
-  const activeRecents = recents.filter(r => !completedSet.has(r.path));
+  const inAnyFolder = new Set(library.folders.flatMap(f => f.filePaths));
+  const activeRecents = recents.filter(r => !completedSet.has(r.path) && !inAnyFolder.has(r.path));
 
   const openFolder = library.folders.find(f => f.id === openFolderId) ?? null;
 
@@ -1076,9 +1145,8 @@ export default function EmptyState({ onOpenFile, onOpenPath, openFiles = [], onR
                         onOpen={() => setOpenFolderId(folder.id)}
                         onRename={name => renameFolder(folder.id, name)}
                         onDelete={() => deleteFolder(folder.id)}
-                        onDrop={path => moveToFolder(path, folder.id)}
                         isDragOver={dragOverFolderId === folder.id}
-                        setDragOver={v => setDragOverFolderId(v ? folder.id : null)}
+                        autoRename={newFolderId === folder.id}
                       />
                     ))}
 

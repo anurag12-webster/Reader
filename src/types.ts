@@ -68,4 +68,6 @@ export interface LibraryStore {
   readPages: Record<string, number[]>;
   /** disk path → annotations */
   annotations: Record<string, Annotation[]>;
+  /** disk path → last page number viewed */
+  lastPage?: Record<string, number>;
 }

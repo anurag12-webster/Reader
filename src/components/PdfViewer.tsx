@@ -9,6 +9,41 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+// ── Search highlight helpers ───────────────────────────────────────────────────
+
+function highlightTextLayer(container: HTMLDivElement, query: string) {
+  const lower = query.toLowerCase();
+  const spans = Array.from(container.querySelectorAll("span")) as HTMLSpanElement[];
+  for (const span of spans) {
+    if (span.classList.contains("pdf-search-highlight")) continue;
+    const text = span.textContent ?? "";
+    const idx = text.toLowerCase().indexOf(lower);
+    if (idx === -1) continue;
+    const before = text.slice(0, idx);
+    const match = text.slice(idx, idx + lower.length);
+    const after = text.slice(idx + lower.length);
+    span.innerHTML = "";
+    if (before) span.appendChild(document.createTextNode(before));
+    const mark = document.createElement("mark");
+    mark.className = "pdf-search-highlight";
+    mark.textContent = match;
+    mark.style.cssText = "background:rgba(250,200,60,0.55);color:inherit;border-radius:2px;padding:0;";
+    span.appendChild(mark);
+    if (after) span.appendChild(document.createTextNode(after));
+  }
+}
+
+function clearTextLayerHighlights(container: HTMLDivElement) {
+  const marks = Array.from(container.querySelectorAll("mark.pdf-search-highlight"));
+  for (const mark of marks) {
+    const parent = mark.parentNode;
+    if (parent) {
+      parent.replaceChild(document.createTextNode(mark.textContent ?? ""), mark);
+      (parent as HTMLElement).normalize();
+    }
+  }
+}
+
 // CSS filter applied to the canvas — instant, no re-render
 const THEME_FILTER: Record<PdfTheme, string> = {
   classic: "none",
@@ -33,6 +68,7 @@ interface PdfViewerProps {
   pageLayout: PageLayout;
   rotation: number;
   annotations: Annotation[];
+  searchQuery?: string;
   onTotalPages: (n: number) => void;
   onAddAnnotation: (a: Annotation) => void;
   onDeleteAnnotation: (id: string) => void;
@@ -43,7 +79,7 @@ interface PdfViewerProps {
 
 export default function PdfViewer({
   filePath, currentPage, zoom, theme, activeTool, pageLayout, rotation,
-  annotations, onTotalPages, onAddAnnotation, onDeleteAnnotation, onZoomChange, onOutlineLoad, onPageChange,
+  annotations, searchQuery, onTotalPages, onAddAnnotation, onDeleteAnnotation, onZoomChange, onOutlineLoad, onPageChange,
 }: PdfViewerProps) {
   // Continuous scroll mode rendered separately
   if (pageLayout === "continuous") {
@@ -112,6 +148,14 @@ export default function PdfViewer({
     void el.offsetWidth;
     el.style.animation = `${dir} 0.3s cubic-bezier(0.16,1,0.3,1) both`;
   }, [currentPage]);
+
+  // Re-apply search highlights when query changes (page already rendered)
+  useEffect(() => {
+    const textDiv = textLayerRef.current;
+    if (!textDiv) return;
+    clearTextLayerHighlights(textDiv);
+    if (searchQuery && searchQuery.trim().length >= 2) highlightTextLayer(textDiv, searchQuery);
+  }, [searchQuery]);
 
   // Apply theme filter instantly whenever it changes — no re-render
   useEffect(() => {
@@ -263,7 +307,7 @@ export default function PdfViewer({
         if (cancelled) return;
         drawAnnotations(overlay, currentPage);
 
-        // Text layer for native text selection
+        // Text layer for native text selection + search highlighting
         const textDiv = textLayerRef.current;
         if (textDiv) {
           textDiv.innerHTML = "";
@@ -278,6 +322,9 @@ export default function PdfViewer({
             viewport,
           });
           await textLayer.render();
+          if (searchQuery && searchQuery.trim().length >= 2) {
+            highlightTextLayer(textDiv, searchQuery);
+          }
         }
 
         // Render second page if double layout and page exists
@@ -469,7 +516,7 @@ export default function PdfViewer({
             className="textLayer"
             style={{
               position: "absolute", top: 0, left: 0,
-              display: loaded && activeTool === "select" ? "block" : "none",
+              display: loaded && (activeTool === "select" || !!searchQuery) ? "block" : "none",
               pointerEvents: activeTool === "select" ? "auto" : "none",
               userSelect: "text",
             }}
