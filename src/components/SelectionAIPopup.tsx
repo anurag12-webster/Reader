@@ -167,7 +167,6 @@ export default function SelectionAIPopup({
   }, [ollamaStatus]);
 
   // ── Global event handlers ──────────────────────────────────────────────────
-
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
     function onDown(e: MouseEvent) {
@@ -488,14 +487,22 @@ export default function SelectionAIPopup({
             <input
               ref={inputRef}
               value={input}
+              onFocus={() => {
+                const sel = window.getSelection();
+                sel?.removeAllRanges();
+              }}
+              onBlur={() => {
+                const range = savedRangeRef.current;
+                if (!range) return;
+              
+                const sel = window.getSelection();
+                if (!sel) return;
+              
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }}
               onChange={e => {
                 setInput(e.target.value);
-                // Restore PDF text highlight on every keystroke (typing collapses it)
-                const range = savedRangeRef.current;
-                if (range) {
-                  const sel = window.getSelection();
-                  if (sel) { sel.removeAllRanges(); sel.addRange(range); }
-                }
               }}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
               placeholder="Ask anything about the selection…"
