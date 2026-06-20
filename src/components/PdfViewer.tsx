@@ -110,6 +110,7 @@ export default function PdfViewer({
   const textLayerRef  = useRef<HTMLDivElement>(null);
   const canvas2Ref    = useRef<HTMLCanvasElement>(null);
   const overlay2Ref   = useRef<HTMLCanvasElement>(null);
+  const textLayer2Ref = useRef<HTMLDivElement>(null); // ref to render text layer for the right page in two-page layout
   const containerRef  = useRef<HTMLDivElement>(null);
   const pdfRef        = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
   const renderTaskRef = useRef<pdfjsLib.RenderTask | null>(null);
@@ -124,9 +125,10 @@ export default function PdfViewer({
   const [isDrawing, setIsDrawing] = useState(false);
   const drawRectRef   = useRef<DrawRect | null>(null);
   const rafRef        = useRef<number | null>(null);
-  const [notePrompt, setNotePrompt] = useState<{ x: number; y: number; pageX: number; pageY: number } | null>(null);
+  const drawingPageRef = useRef(0); // tracks which page a draw gesture started on
+  const [notePrompt, setNotePrompt] = useState<{ x: number; y: number; pageX: number; pageY: number; page: number } | null>(null); 
   const [noteText, setNoteText]   = useState("");
-  const [hoveredNote, setHoveredNote] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [hoveredNote, setHoveredNote] = useState<{ x: number; y: number; text: string; page: number } | null>(null);
   const [aiPopup, setAiPopup] = useState<{ text: string; rect: DOMRect } | null>(null);
 
   // Keep refs in sync; don't overwrite pendingZoom mid-gesture (that's the scroll-accumulated value)
@@ -166,9 +168,15 @@ export default function PdfViewer({
   // Re-apply search highlights when query changes (page already rendered)
   useEffect(() => {
     const textDiv = textLayerRef.current;
-    if (!textDiv) return;
-    clearTextLayerHighlights(textDiv);
-    if (searchQuery && searchQuery.trim().length >= 2) highlightTextLayer(textDiv, searchQuery);
+    if (textDiv) {
+      clearTextLayerHighlights(textDiv);
+      if (searchQuery && searchQuery.trim().length >= 2) highlightTextLayer(textDiv, searchQuery);
+    }
+    const textDiv2 = textLayer2Ref.current;
+    if (textDiv2) {
+      clearTextLayerHighlights(textDiv2);
+      if (searchQuery && searchQuery.trim().length >= 2) highlightTextLayer(textDiv2, searchQuery);
+    }
   }, [searchQuery]);
 
   // Ctrl+scroll: CSS scale gives instant visual feedback; debounce commits real zoom after gesture ends
@@ -339,6 +347,7 @@ export default function PdfViewer({
         // Render second page if double layout and page exists
         const canvas2 = canvas2Ref.current;
         const overlay2 = overlay2Ref.current;
+        const textDiv2 = textLayer2Ref.current;
         const nextPage = currentPage + 1;
         if (pageLayout === "double" && canvas2 && overlay2 && nextPage <= pdf.numPages) {
           const page2    = await pdf.getPage(nextPage);
@@ -355,6 +364,24 @@ export default function PdfViewer({
           await page2.render({ canvasContext: ctx2, viewport: vp2, canvas: canvas2 }).promise;
           if (cancelled) return;
           drawAnnotations(overlay2, nextPage);
+
+          // Text layer for page 2
+          if (textDiv2) {
+            textDiv2.innerHTML = "";
+            const dpr = window.devicePixelRatio || 1;
+            textDiv2.style.setProperty("--total-scale-factor", String(zoom * dpr));
+            textDiv2.style.width  = vp2.width  + "px";
+            textDiv2.style.height = vp2.height + "px";
+            const textLayer2 = new pdfjsLib.TextLayer({
+              textContentSource: page2.streamTextContent(),
+              container: textDiv2,
+              viewport: vp2,
+            });
+            await textLayer2.render();
+            if (searchQuery && searchQuery.trim().length >= 2) {
+              highlightTextLayer(textDiv2, searchQuery);
+            }
+          }
         } else if (canvas2 && overlay2) {
           // Clear second canvas when not used
           canvas2.width = 0; canvas2.height = 0;
@@ -368,13 +395,16 @@ export default function PdfViewer({
     return () => { cancelled = true; };
   }, [loaded, currentPage, zoom, rotation, pageLayout]); // drawAnnotations stable (reads ref); theme intentionally excluded
 
-  function getCanvasPos(e: React.MouseEvent) {
-    const canvas = canvasRef.current!;
-    const rect   = canvas.getBoundingClientRect();
+  // Compute coordinates relative to any canvas
+  function getCanvasPosFor(canvas: HTMLCanvasElement, e: React.MouseEvent) {
+    const rect = canvas.getBoundingClientRect();
     return {
       x: (e.clientX - rect.left) * (canvas.width / rect.width),
       y: (e.clientY - rect.top)  * (canvas.height / rect.height),
     };
+  }
+  function getCanvasPos(e: React.MouseEvent) {
+    return getCanvasPosFor(canvasRef.current!, e);
   }
 
   function onMouseDown(e: React.MouseEvent) {
@@ -387,10 +417,11 @@ export default function PdfViewer({
         && pos.x >= a.x * z && pos.x <= a.x * z + 22 && pos.y >= a.y * z && pos.y <= a.y * z + 22);
       if (onExisting) return;
       const rect = canvasRef.current!.getBoundingClientRect();
-      setNotePrompt({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top + 12, pageX: pos.x, pageY: pos.y });
+      setNotePrompt({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top + 12, pageX: pos.x, pageY: pos.y, page: currentPage });
       return;
     }
     setIsDrawing(true);
+    drawingPageRef.current = currentPage;
     const pos = getCanvasPos(e);
     drawRectRef.current = { startX: pos.x, startY: pos.y, endX: pos.x, endY: pos.y };
   }
@@ -435,7 +466,7 @@ export default function PdfViewer({
       if (note) {
         const canvas = canvasRef.current!;
         const rect = canvas.getBoundingClientRect();
-        setHoveredNote({ x: e.clientX - rect.left + 14, y: e.clientY - rect.top + 14, text: note.text! });
+        setHoveredNote({ x: e.clientX - rect.left + 14, y: e.clientY - rect.top + 14, text: note.text!, page: currentPage });
       } else {
         setHoveredNote(null);
       }
@@ -452,10 +483,11 @@ export default function PdfViewer({
     drawRectRef.current = null;
     if (w < 5 && h < 5) return;
     const z = zoomRef.current;
+    const page = drawingPageRef.current;
     onAddAnnotation({
       id: crypto.randomUUID(),
       type: activeTool as "highlight" | "underline",
-      page: currentPage,
+      page,
       x: x / z, y: y / z, width: w / z, height: Math.max(h, 12) / z,
       color: activeTool === "highlight" ? highlightColor : "#60a5fa",
     });
@@ -478,12 +510,120 @@ export default function PdfViewer({
     const z = zoomRef.current;
     onAddAnnotation({
       id: crypto.randomUUID(), type: "note",
-      page: currentPage,
+      page: notePrompt.page,
       x: notePrompt.pageX / z, y: notePrompt.pageY / z,
       width: 22 / z, height: 22 / z,
       color: "#f5c842", text: noteText,
     });
     setNotePrompt(null); setNoteText("");
+  }
+
+  // ── Page 2 event handlerss ──────────────────────────────────────────────────
+  function onMouseDown2(e: React.MouseEvent) {
+    const canvas2 = canvas2Ref.current!;
+    if (canvas2.width === 0) return; // last page guard to handle when there's no next pagee 
+    const nextPage = currentPage + 1;
+    if (activeTool === "select") return;
+    if (activeTool === "note") {
+      const pos = getCanvasPosFor(canvas2, e);
+      const z = zoomRef.current;
+      const onExisting = annotations.some(a => a.page === nextPage && a.type === "note"
+        && pos.x >= a.x * z && pos.x <= a.x * z + 22 && pos.y >= a.y * z && pos.y <= a.y * z + 22);
+      if (onExisting) return;
+      const rect = canvas2.getBoundingClientRect();
+      setNotePrompt({ x: e.clientX - rect.left + 12, y: e.clientY - rect.top + 12, pageX: pos.x, pageY: pos.y, page: nextPage });
+      return;
+    }
+    setIsDrawing(true);
+    drawingPageRef.current = nextPage;
+    const pos = getCanvasPosFor(canvas2, e);
+    drawRectRef.current = { startX: pos.x, startY: pos.y, endX: pos.x, endY: pos.y };
+  }
+
+  function onMouseMove2(e: React.MouseEvent) {
+    const nextPage = currentPage + 1;
+    const canvas2 = canvas2Ref.current!;
+    if (canvas2.width === 0) return;
+    // While drawing: update live preview, throttled to one rAF per frame
+    if (isDrawing && drawRectRef.current) {
+      const pos = getCanvasPosFor(canvas2, e);
+      drawRectRef.current.endX = pos.x;
+      drawRectRef.current.endY = pos.y;
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          const overlay = overlay2Ref.current;
+          if (!overlay || !drawRectRef.current) return;
+          const ctx = overlay.getContext("2d")!;
+          drawAnnotations(overlay, nextPage);
+          const r = drawRectRef.current;
+          const x = Math.min(r.startX, r.endX), y = Math.min(r.startY, r.endY);
+          const w = Math.abs(r.endX - r.startX), h = Math.abs(r.endY - r.startY);
+          if (activeTool === "highlight") {
+            ctx.fillStyle = highlightColor; ctx.globalAlpha = 0.4;
+            ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1;
+          } else if (activeTool === "underline") {
+            ctx.globalAlpha = 0.12; ctx.fillStyle = "#60a5fa";
+            ctx.fillRect(x, y, w, h); ctx.globalAlpha = 1;
+            ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 2; ctx.lineCap = "round";
+            ctx.beginPath(); ctx.moveTo(x, y + h); ctx.lineTo(x + w, y + h); ctx.stroke();
+          }
+        });
+      }
+      return;
+    }
+    // Hover over a note — show its text (any tool mode)
+    {
+      const pos = getCanvasPosFor(canvas2, e);
+      const z = zoomRef.current;
+      const note = annotations.find(a => a.page === nextPage && a.type === "note"
+        && pos.x >= a.x * z && pos.x <= a.x * z + 22
+        && pos.y >= a.y * z && pos.y <= a.y * z + 22
+        && a.text);
+      if (note) {
+        const rect = canvas2.getBoundingClientRect();
+        setHoveredNote({ x: e.clientX - rect.left + 14, y: e.clientY - rect.top + 14, text: note.text!, page: nextPage });
+      } else {
+        setHoveredNote(null);
+      }
+    }
+  }
+
+  function onMouseUp2(e: React.MouseEvent) {
+    if (!isDrawing || !drawRectRef.current) return;
+    const canvas2 = canvas2Ref.current!;
+    if (canvas2.width === 0) return;
+    setIsDrawing(false);
+    const pos = getCanvasPosFor(canvas2, e);
+    const r   = drawRectRef.current;
+    const x   = Math.min(r.startX, pos.x), y = Math.min(r.startY, pos.y);
+    const w   = Math.abs(pos.x - r.startX), h = Math.abs(pos.y - r.startY);
+    drawRectRef.current = null;
+    if (w < 5 && h < 5) return;
+    const z = zoomRef.current;
+    const page = drawingPageRef.current;
+    onAddAnnotation({
+      id: crypto.randomUUID(),
+      type: activeTool as "highlight" | "underline",
+      page,
+      x: x / z, y: y / z, width: w / z, height: Math.max(h, 12) / z,
+      color: activeTool === "highlight" ? highlightColor : "#60a5fa",
+    });
+  }
+
+  function onContextMenu2(e: React.MouseEvent) {
+    const canvas2 = canvas2Ref.current!;
+    if (canvas2.width === 0) return;
+    const nextPage = currentPage + 1;
+    const pos = getCanvasPosFor(canvas2, e);
+    const z = zoomRef.current;
+    const hit = annotations.find(a => a.page === nextPage
+      && pos.x >= a.x * z && pos.x <= (a.x + a.width) * z
+      && pos.y >= a.y * z && pos.y <= (a.y + a.height) * z);
+    if (hit) {
+      e.preventDefault();
+      onDeleteAnnotation(hit.id);
+    }
   }
 
   return (
@@ -563,8 +703,8 @@ export default function PdfViewer({
             onMouseLeave={() => setHoveredNote(null)}
           />
 
-        {/* Note popup */}
-        {notePrompt && (
+        {/* Note popup (page 1) */}
+        {notePrompt && notePrompt.page === currentPage && (
           <NotePopup
             x={notePrompt.x}
             y={notePrompt.y}
@@ -575,8 +715,8 @@ export default function PdfViewer({
           />
         )}
 
-        {/* Note hover tooltip */}
-        {hoveredNote && (
+        {/* Note hover tooltip (page 1) */}
+        {hoveredNote && hoveredNote.page === currentPage && (
           <div style={{
             position: "absolute",
             left: hoveredNote.x, top: hoveredNote.y,
@@ -613,6 +753,30 @@ export default function PdfViewer({
                 transition: FILTER_TRANSITION,
               }}
             />
+            {/* Text layer for page 2 */}
+            <div
+              ref={textLayer2Ref}
+              className="textLayer"
+              style={{
+                position: "absolute", top: 0, left: 0,
+                display: loaded && (activeTool === "select" || !!searchQuery) ? "block" : "none",
+                pointerEvents: activeTool === "select" ? "auto" : "none",
+                userSelect: "text",
+              }}
+              onMouseMove={onMouseMove2}
+              onMouseLeave={() => setHoveredNote(null)}
+              onMouseUp={() => {
+                if (activeTool !== "select") return;
+                setTimeout(() => {
+                  const sel = window.getSelection();
+                  const text = sel?.toString().trim() ?? "";
+                  if (!text || !sel?.rangeCount) return;
+                  const rect = sel.getRangeAt(0).getBoundingClientRect();
+                  if (rect.width === 0 && rect.height === 0) return;
+                  setAiPopup({ text, rect });
+                }, 10);
+              }}
+            />
             <canvas
               ref={overlay2Ref}
               style={{
@@ -620,8 +784,49 @@ export default function PdfViewer({
                 width: "100%", height: "100%",
                 display: loaded ? "block" : "none",
                 cursor: activeTool === "select" ? "default" : "crosshair",
+                pointerEvents: activeTool === "select" ? "none" : "auto",
               }}
+              onMouseDown={onMouseDown2}
+              onMouseMove={onMouseMove2}
+              onMouseUp={onMouseUp2}
+              onContextMenu={onContextMenu2}
+              onMouseLeave={() => setHoveredNote(null)}
             />
+
+            {/* Note popup (page 2) */}
+            {notePrompt && notePrompt.page === currentPage + 1 && (
+              <NotePopup
+                x={notePrompt.x}
+                y={notePrompt.y}
+                text={noteText}
+                onChange={setNoteText}
+                onSubmit={submitNote}
+                onCancel={() => { setNotePrompt(null); setNoteText(""); }}
+              />
+            )}
+
+            {/* Note hover tooltip (page 2) */}
+            {hoveredNote && hoveredNote.page === currentPage + 1 && (
+              <div style={{
+                position: "absolute",
+                left: hoveredNote.x, top: hoveredNote.y,
+                maxWidth: 220,
+                background: "rgba(18,18,18,0.95)",
+                border: "1px solid rgba(245,200,66,0.3)",
+                borderLeft: "3px solid #f5c842",
+                borderRadius: 8,
+                padding: "7px 10px",
+                fontSize: 12, lineHeight: 1.5,
+                color: "var(--text-primary)",
+                pointerEvents: "none",
+                zIndex: 70,
+                boxShadow: "0 6px 20px rgba(0,0,0,0.5)",
+                animation: "pageEnter 0.12s var(--ease-out) both",
+                whiteSpace: "pre-wrap", wordBreak: "break-word",
+              }}>
+                {hoveredNote.text}
+              </div>
+            )}
           </div>
         )}
       </div>{/* end flex row */}
